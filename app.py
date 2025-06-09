@@ -3,6 +3,7 @@ from flask_cors import CORS
 import math
 import CostEstimationModule
 import BudgetingAndCostModule
+import RiskManagementModule
 app = Flask(__name__)
 CORS(app)
 
@@ -40,6 +41,7 @@ def calculate_bmi():
 def calculate_cocomo():
     data = request.get_json()
     cocomo_type = data.get('cocomo_type')
+    # 判断cocomo类型，调用对应函数解决问题
     if cocomo_type == 'basic':
         effort, time, personnel = CostEstimationModule.cocomo_basic(data.get('kloc'), data.get('project_type'))
         result = {
@@ -85,7 +87,7 @@ def calculate_fp():
 def calculate_budget():
     data = request.get_json()
     roi, npv, irr, period = (
-        BudgetingAndCostModule.budgetingAndCost(data.get('return_amount'), data.get('initial_investment'),
+        BudgetingAndCostModule.budgeting_and_cost(data.get('return_amount'), data.get('initial_investment'),
                                                 data.get('cash_flows'), data.get('discount_rate')))
     result = {
         'roi': roi,
@@ -94,6 +96,31 @@ def calculate_budget():
         'period': period
     }
     return jsonify(result)
+
+# 敏感度分析
+@app.route('/riskmanagement/sensitivity', methods=['POST'])
+def sensitivity_calculation():
+    data = request.get_json()
+    result = RiskManagementModule.sensitivity_analysis(data.get('initial_costs'), data.get('initial_benefits'),
+                                                       data.get('change_costs'), data.get('change_revenue'),
+                                                       data.get('dev_cost_change'), data.get('revenue_change'))
+    return jsonify(result)
+
+
+# 决策树
+@app.route('/riskmanagement/decisionTree', methods=['POST'])
+def decision_tree_calculation():
+    data = request.get_json()
+
+
+#蒙特卡洛模拟
+@app.route('/riskmanagement/monteCarlo', methods=['POST'])
+def monteCarlo_calculation():
+    data = request.get_json()
+    result = RiskManagementModule.monte_carlo_simulation(data.get('cost_range'), data.get('revenue_mean'), data.get('revenue_std'),
+                                                         data.get('discount_rate_range'), data.get('duration'), data.get('num_simulations'))
+    return jsonify(result)
+
 
 
 

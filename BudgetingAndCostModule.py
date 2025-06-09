@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import newton
 
-def budgetingAndCost(return_amount, initial_investment, cash_flows, discount_rate):
+def budgeting_and_cost(return_amount, initial_investment, cash_flows, discount_rate):
     roi = calculate_roi(return_amount, initial_investment)
     npv = calculate_npv(cash_flows, discount_rate, initial_investment)
     irr = calculate_irr(cash_flows, initial_investment)
@@ -30,3 +30,4 @@ def calculate_payback_period(cash_flows, initial_investment):
             return t
     # 代表无法回收
     return -1
+
