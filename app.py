@@ -4,36 +4,14 @@ import math
 import CostEstimationModule
 import BudgetingAndCostModule
 import RiskManagementModule
+from model import db, BudgetTrack, Project  # 导入数据库和模型
 app = Flask(__name__)
 CORS(app)
 
-
-@app.route('/test', methods=['POST'])
-def calculate_bmi():
-    # 获取前端传递的 JSON 数据
-    data = request.get_json()
-
-    # 提取数据
-    height = data.get('height')  # 身高（单位：米）
-    weight = data.get('weight')  # 体重（单位：公斤）
-    gender = data.get('gender')  # 性别
-    age = data.get('age')        # 年龄
-    # 校验输入数据是否有效
-    if height <= 0 or weight <= 0:
-        return jsonify({'error': '身高和体重必须大于零'}), 400
-    # 计算 BMI
-    bmi = weight / (height ** 2)
-    # 判断是否肥胖（BMI ≥ 30）
-    if bmi >= 30:
-        obesity_status = '肥胖'
-    else:
-        obesity_status = '正常'
-    # 返回计算结果
-    result = {
-        'bmi': round(bmi, 2),
-        'obesity_status': obesity_status
-    }
-    return jsonify(result)
+# 连接数据库
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:123456@localhost:3306/SEE_project'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
 
 
 # 用于计算不用形式下的COCOMO值，具体接口接收形式见apifox
@@ -70,7 +48,8 @@ def calculate_cocomo():
         return jsonify({'error': 'Invalid'})
     return jsonify(result)
 
-#用于计算对应的调整后FP以及KLOC
+
+# 用于计算对应的调整后FP以及KLOC
 @app.route('/costestimation/calkloc', methods=['POST'])
 def calculate_fp():
     data = request.get_json()
@@ -97,6 +76,145 @@ def calculate_budget():
     }
     return jsonify(result)
 
+
+# 创建项目
+@app.route('/budgeting/postProject', methods=['POST'])
+def post_project():
+    data = request.get_json()
+    try:
+        # 创建新的项目实例
+        new_project = Project(
+            initial_investment=data.get('initial_investment'),
+            project_name=data.get('project_name'),
+            project_description=data.get('project_description'),  # 可为 None
+            total_cost=data.get('total_cost'),
+            project_period_num=data.get('project_period_num')
+        )
+
+        # 添加到数据库并提交
+        db.session.add(new_project)
+        db.session.commit()
+
+        return jsonify({'message': "succeed to add new project", 'project_id': new_project.project_id})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': str(e),  'project_id': None})
+
+
+# 获取已经创建的项目列表
+@app.route('/budgeting/getprojects', methods=['GET'])
+def get_projects():
+    try:
+        # 查询所有项目的 project_id 和 project_name
+        projects = Project.query.with_entities(Project.project_id, Project.project_name).all()
+
+        # 格式化成字典列表
+        data = [{'project_id': project.project_id, 'project_name': project.project_name} for project in projects]
+
+        result = {
+            'message': "the query is successful",
+            'data': data
+        }
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'message': str(e), 'data': []})
+
+
+# 获取某个项目下的预算追踪数据
+@app.route('/budgeting/getbudgetingtrack', methods=['GET'])
+def get_budget_by_project_id():
+    try:
+        project_id = request.args.get('project_id')
+
+        if not project_id:
+            return jsonify({'message': 'project_id is required', 'data': []})
+
+        data = BudgetingAndCostModule.get_budget(project_id)
+
+        result = {
+            'message': "the operation is successful",
+            'data': data
+        }
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'message': str(e), 'data': []})
+
+
+# 创建追踪数据
+@app.route('/budgeting/postBudgeting', methods=['POST'])
+def create_budgeting():
+    try:
+        # 获取数据
+        data = request.get_json()
+        project_id = data.get('project_id')
+        budget_list = data.get('budget_data')
+
+        if not project_id or not budget_list:
+            return jsonify({'error': 'Both project_id and budget_data are required'})
+
+        result = BudgetingAndCostModule.create_budget(budget_list, project_id)
+        return jsonify(result)
+
+    except Exception as e:
+        db.session.rollback()  # 如果发生错误，回滚数据库事务
+        return jsonify({'error': str(e)})
+
+
+# 展示折线图，饼状图以及柱状图
+@app.route('/budgeting/showCharts', methods=['get'])
+def show_budgeting():
+    try:
+        project_id = request.args.get('project_id')
+        if not project_id:
+            return jsonify({'message': 'project_id is required', 'data': []})
+
+        # 查询项目
+        project = Project.query.get(project_id)
+
+        if not project:
+            return jsonify({'message': 'Project not found', 'data': {}})
+        # 折线图数据获取
+        budget_amounts, cost_amounts = BudgetingAndCostModule.getlinechartsinfo(project_id)
+
+        # 评价
+        message = BudgetingAndCostModule.writeanalysis(project.initial_investment, sum(budget_amounts),
+                                                       project.total_cost, sum(cost_amounts),
+                                                       project.project_period_num, len(budget_amounts))
+
+        result = {
+            'message': "the operation is successful",
+            'data': {
+                'project_name': project.project_name,
+                'initial_investment': project.initial_investment,
+                'total_cost': project.total_cost,
+                'project_period_num': project.project_period_num,
+                'linecharts': {
+                    'linename': ['budget', 'cost'],
+                    'xAxis': list(range(1, project.project_period_num + 1)),
+                    'budgets': budget_amounts,
+                    'costs': cost_amounts
+                },
+                'barcharts': {
+                    'barchart_name': ['name', 'expected', 'actual'],
+                    'budgets': ['budget', project.initial_investment, sum(budget_amounts)],
+                    'costs': ['cost', project.total_cost, sum(cost_amounts)],
+                    'time': ['time', project.project_period_num, len(budget_amounts)]
+                },
+                'prediction': {
+                    'message': message
+                }
+            }
+        }
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e), 'data': {}})
+
+
 # 敏感度分析
 @app.route('/riskmanagement/sensitivity', methods=['POST'])
 def sensitivity_calculation():
@@ -113,13 +231,15 @@ def decision_tree_calculation():
     data = request.get_json()
 
 
-#蒙特卡洛模拟
+
+# 蒙特卡洛模拟
 @app.route('/riskmanagement/monteCarlo', methods=['POST'])
-def monteCarlo_calculation():
+def montecarlo_calculation():
     data = request.get_json()
     result = RiskManagementModule.monte_carlo_simulation(data.get('cost_range'), data.get('revenue_mean'), data.get('revenue_std'),
                                                          data.get('discount_rate_range'), data.get('duration'), data.get('num_simulations'))
     return jsonify(result)
+
 
 
 
