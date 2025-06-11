@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import math
 import CostEstimationModule
 import BudgetingAndCostModule
+import ResourceAlloAndOptimModule
+import ResourceLeveling
+import numpy as np
 import RiskManagementModule
-from model import db, BudgetTrack, Project  # 导入数据库和模型
+from model import db, Project  # 导入数据库和模型
 app = Flask(__name__)
 CORS(app)
 
@@ -177,10 +179,10 @@ def show_budgeting():
         if not project:
             return jsonify({'message': 'Project not found', 'data': {}})
         # 折线图数据获取
-        budget_amounts, cost_amounts = BudgetingAndCostModule.getlinechartsinfo(project_id)
+        budget_amounts, cost_amounts = BudgetingAndCostModule.get_linecharts_info(project_id)
 
         # 评价
-        message = BudgetingAndCostModule.writeanalysis(project.initial_investment, sum(budget_amounts),
+        message = BudgetingAndCostModule.write_analysis(project.initial_investment, sum(budget_amounts),
                                                        project.total_cost, sum(cost_amounts),
                                                        project.project_period_num, len(budget_amounts))
 
@@ -241,6 +243,22 @@ def montecarlo_calculation():
     return jsonify(result)
 
 
+# 资源平衡
+@app.route('/resourceallocation/resourceleveling', methods=['POST'])
+def resource_leveling():
+    data = request.get_json()
+    tasks = data.get('tasks')
+    # 调用函数处理得到初始数据的柱状图绘制数据
+    initial_bar_charts = ResourceAlloAndOptimModule.show_task_bar(tasks)
+    best_schedule = (
+        ResourceLeveling.genetic_algorithm(tasks, data.get('max_duration')))
+    # 调用函数处理得到更改数据的柱状图绘制数据
+    changed_bar_charts = ResourceAlloAndOptimModule.show_task_bar(best_schedule)
+    result = {'best_schedule': best_schedule,
+              'changed_bar_charts': changed_bar_charts,
+              'initial_bar_charts': initial_bar_charts
+              }
+    return jsonify(result)
 
 
 

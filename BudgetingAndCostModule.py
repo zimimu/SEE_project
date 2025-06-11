@@ -81,7 +81,7 @@ def get_budget(project_id):
 
 
 # 组织折线图的结构
-def getlinechartsinfo(project_id):
+def get_linecharts_info(project_id):
     # 查询对应 project_id 的所有预算条目，并按 budget_period 排序
     budget_tracks = BudgetTrack.query.filter_by(project_id=project_id).order_by(BudgetTrack.budget_period.asc()).all()
     # 分别提取 budget_amount 和 cost_amount
@@ -92,7 +92,7 @@ def getlinechartsinfo(project_id):
 
 
 # 编写分析语句
-def writeanalysis(initial_investment, actual_budget, expected_cost, actual_cost, expected_time, actual_time):
+def write_analysis(initial_investment, actual_budget, expected_cost, actual_cost, expected_time, actual_time):
     analysis = ""
     if actual_budget >= initial_investment:
         analysis += "The current budget has been overspent. Pay attention to modifying or applying for more investment\n"
