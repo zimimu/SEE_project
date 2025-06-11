@@ -21,7 +21,7 @@ def show_task_bar(tasks):
         })
     result = {
         "data": data,
-        "xAris": list(range(1, max_end_time + 1))
+        "xAris": list(range(0, max_end_time + 1))
     }
 
     return result
