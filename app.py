@@ -7,16 +7,18 @@ import ResourceLeveling
 import numpy as np
 import RiskManagementModule
 from model import db, Project  # 导入数据库和模型
+
 app = Flask(__name__)
+# 修改CORS配置，支持credentials
 CORS(app)
 
 # 连接数据库
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:123456@localhost:3306/SEE_project'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:112233@localhost:3306/see_proj'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
 
-# 用于计算不用形式下的COCOMO值，具体接口接收形式见apifox
+# 用于计算不同形式下的COCOMO值，具体接口接收形式见apifox，下同
 @app.route('/costestimation/cocomo', methods=['POST'])
 def calculate_cocomo():
     data = request.get_json()
@@ -31,7 +33,8 @@ def calculate_cocomo():
         }
     elif cocomo_type == 'intermediate':
         adjusted_effort, adjusted_time, adjusted_personnel = (
-            CostEstimationModule.cocomo_intermediate(data.get('kloc'), data.get('project_type'), data.get('cost_drivers')))
+            CostEstimationModule.cocomo_intermediate(data.get('kloc'), data.get('project_type'),
+                                                     data.get('cost_drivers')))
         result = {
             'adjusted_effort': adjusted_effort,
             'adjusted_time': adjusted_time,
@@ -67,9 +70,13 @@ def calculate_fp():
 @app.route('/budgeting/calindicator', methods=['POST'])
 def calculate_budget():
     data = request.get_json()
+    print(data.get('return_amount'))
+    print(data.get('initial_investment'))
+    print(data.get('cash_flows'))
+    print(data.get('discount_rate'))
     roi, npv, irr, period = (
         BudgetingAndCostModule.budgeting_and_cost(data.get('return_amount'), data.get('initial_investment'),
-                                                data.get('cash_flows'), data.get('discount_rate')))
+                                                  data.get('cash_flows'), data.get('discount_rate')))
     result = {
         'roi': roi,
         'npv': npv,
@@ -101,7 +108,7 @@ def post_project():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'message': str(e),  'project_id': None})
+        return jsonify({'message': str(e), 'project_id': None})
 
 
 # 获取已经创建的项目列表
@@ -183,8 +190,8 @@ def show_budgeting():
 
         # 评价
         message = BudgetingAndCostModule.write_analysis(project.initial_investment, sum(budget_amounts),
-                                                       project.total_cost, sum(cost_amounts),
-                                                       project.project_period_num, len(budget_amounts))
+                                                        project.total_cost, sum(cost_amounts),
+                                                        project.project_period_num, len(budget_amounts))
 
         result = {
             'message': "the operation is successful",
@@ -227,19 +234,127 @@ def sensitivity_calculation():
     return jsonify(result)
 
 
-# 决策树
+# ✅ 决策树可视化辅助函数（优化版）
+def build_visual_tree(risk_scenarios):
+    """构建决策树可视化结构"""
+    root = {
+        'name': '开始',
+        'children': []
+    }
+
+    for scenario in risk_scenarios:
+        scenario_node = {
+            'name': f"{scenario['scenario_name']} (P={scenario['probability']:.2f})",
+            'children': []
+        }
+
+        for decision in scenario['decisions']:
+            decision_name = decision.get('decision_name')
+            impact_value = decision.get('impact_value')
+            scenario_node['children'].append({
+                'name': f"{decision_name} → {impact_value}"
+            })
+
+        root['children'].append(scenario_node)
+
+    return root
+
+
+# ✅ 决策树分析接口（优化版）
 @app.route('/riskmanagement/decisionTree', methods=['POST'])
 def decision_tree_calculation():
-    data = request.get_json()
+    """决策树分析接口 - 优化版"""
+    try:
+        # 获取并验证请求数据
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求数据不能为空'}), 400
 
+        if 'risk_scenarios' not in data:
+            return jsonify({'error': '缺少 risk_scenarios 参数'}), 400
+
+        risk_scenarios = data.get('risk_scenarios')
+
+        # 基本验证
+        if not isinstance(risk_scenarios, list) or len(risk_scenarios) == 0:
+            return jsonify({'error': '至少需要提供一个风险场景'}), 400
+
+        # 详细验证每个场景
+        total_probability = 0
+        for i, scenario in enumerate(risk_scenarios):
+            if not isinstance(scenario, dict):
+                return jsonify({'error': f'第{i + 1}个场景格式错误'}), 400
+
+            # 验证场景名称
+            if 'scenario_name' not in scenario or not scenario['scenario_name'].strip():
+                return jsonify({'error': f'第{i + 1}个场景缺少场景名称'}), 400
+
+            # 验证概率
+            if 'probability' not in scenario:
+                return jsonify({'error': f'第{i + 1}个场景缺少概率值'}), 400
+
+            try:
+                probability = float(scenario['probability'])
+                if probability < 0 or probability > 1:
+                    return jsonify({'error': f'第{i + 1}个场景的概率必须在0-1之间'}), 400
+                total_probability += probability
+            except (ValueError, TypeError):
+                return jsonify({'error': f'第{i + 1}个场景的概率格式错误'}), 400
+
+            # 验证决策列表
+            if 'decisions' not in scenario or not isinstance(scenario['decisions'], list):
+                return jsonify({'error': f'第{i + 1}个场景缺少决策列表'}), 400
+
+            if len(scenario['decisions']) == 0:
+                return jsonify({'error': f'第{i + 1}个场景至少需要一个决策'}), 400
+
+            # 验证每个决策
+            for j, decision in enumerate(scenario['decisions']):
+                if not isinstance(decision, dict):
+                    return jsonify({'error': f'第{i + 1}个场景的第{j + 1}个决策格式错误'}), 400
+
+                if 'decision_name' not in decision or not decision['decision_name'].strip():
+                    return jsonify({'error': f'第{i + 1}个场景的第{j + 1}个决策缺少名称'}), 400
+
+                if 'impact_value' not in decision:
+                    return jsonify({'error': f'第{i + 1}个场景的第{j + 1}个决策缺少影响值'}), 400
+
+                try:
+                    float(decision['impact_value'])
+                except (ValueError, TypeError):
+                    return jsonify({'error': f'第{i + 1}个场景的第{j + 1}个决策的影响值格式错误'}), 400
+
+        # 验证概率总和
+        if abs(total_probability - 1.0) > 0.01:
+            return jsonify({
+                'error': f'所有场景的概率总和必须接近1.0，当前为{total_probability:.3f}'
+            }), 400
+
+        # 调用分析模块
+        result = RiskManagementModule.decision_tree_analysis(risk_scenarios)
+
+        # 构建可视化结构
+        visual_tree = build_visual_tree(risk_scenarios)
+        result['tree_chart'] = visual_tree
+
+        return jsonify(result)
+
+    except ValueError as e:
+        return jsonify({'error': f'数据验证错误: {str(e)}'}), 400
+    except Exception as e:
+        # 记录错误日志（在生产环境中）
+        app.logger.error(f"决策树分析错误: {str(e)}")
+        return jsonify({'error': '服务器内部错误，请稍后重试'}), 500
 
 
 # 蒙特卡洛模拟
 @app.route('/riskmanagement/monteCarlo', methods=['POST'])
 def montecarlo_calculation():
     data = request.get_json()
-    result = RiskManagementModule.monte_carlo_simulation(data.get('cost_range'), data.get('revenue_mean'), data.get('revenue_std'),
-                                                         data.get('discount_rate_range'), data.get('duration'), data.get('num_simulations'))
+    result = RiskManagementModule.monte_carlo_simulation(data.get('cost_range'), data.get('revenue_mean'),
+                                                         data.get('revenue_std'),
+                                                         data.get('discount_rate_range'), data.get('duration'),
+                                                         data.get('num_simulations'))
     return jsonify(result)
 
 
@@ -258,9 +373,19 @@ def resource_leveling():
               'changed_bar_charts': changed_bar_charts,
               'initial_bar_charts': initial_bar_charts
               }
+    print(best_schedule[0])
+    print(best_schedule[1])
+    print(best_schedule[2])
+    print(best_schedule[3])
+    print(best_schedule[4])
     return jsonify(result)
 
-
+# 资源平滑
+@app.route('/resourceallocation/resourcesmoothing', methods=['POST'])
+def resource_smoothing():
+    data = request.get_json()
+    result = ResourceAlloAndOptimModule.resource_smoothing(data)
+    return jsonify(result)
 
 if __name__ == '__main__':
     app.run()
