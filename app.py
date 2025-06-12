@@ -16,7 +16,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
 
-# 用于计算不用形式下的COCOMO值，具体接口接收形式见apifox
+# 用于计算不同形式下的COCOMO值，具体接口接收形式见apifox，下同
 @app.route('/costestimation/cocomo', methods=['POST'])
 def calculate_cocomo():
     data = request.get_json()
@@ -231,7 +231,6 @@ def sensitivity_calculation():
 @app.route('/riskmanagement/decisionTree', methods=['POST'])
 def decision_tree_calculation():
     data = request.get_json()
-
 
 
 # 蒙特卡洛模拟
