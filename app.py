@@ -259,6 +259,12 @@ def resource_leveling():
               }
     return jsonify(result)
 
+# 资源平滑
+@app.route('/resourceallocation/resourcesmoothing', methods=['POST'])
+def resource_smoothing():
+    data = request.get_json()
+    result = ResourceAlloAndOptimModule.resource_smoothing(data)
+    return jsonify(result)
 
 
 if __name__ == '__main__':
